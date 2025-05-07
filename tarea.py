@@ -169,24 +169,48 @@ class FileManagementSystem:
 
         return True, accessible
     
-    def create_file(self, filename, content, dir_type="temporal"):
-        # Crea un nuevo archivo en la carpeta especificada
+    def create_file(self, filename, content, owner=None):
         if not self.current_user:
             return False, "Iniciar sesión primero."
         
-        if dir_type not in ["temporal"]:
-            return False, "Tipo de directorio no válido usar 'temporal'."
+        # Si no se especifica un dueño, crear el archivo en la carpeta temporal del usuario actual
+        if not owner:
+            directory = self.users[self.current_user]["temporal_dir"]
+            file_path = os.path.join(directory, filename)
+        else:
+            # Verificar que el owner (otro usuario) existe
+            if owner not in self.users:
+                return False, f"El usuario '{owner}' no existe."
+            
+            # Verificar si el usuario actual tiene permisos de escritura para el dueño especificado
+            if self.current_user not in self.users.get(owner, {}).get("permissions", {}) or \
+            self.users[owner]["permissions"][self.current_user] != "escritura":
+                return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
+            
+            # Ruta para la carpeta access/owner del usuario actual
+            access_owner_dir = os.path.join(self.root_path, self.current_user, "access", owner)
+            
+            # Verificar si la carpeta existe, si no, crearla
+            if not os.path.exists(access_owner_dir):
+                try:
+                    os.makedirs(access_owner_dir)
+                except Exception as e:
+                    return False, f"Error al crear directorio de acceso: {str(e)}"
+            
+            file_path = os.path.join(access_owner_dir, filename)
         
-        directory = self.users[self.current_user][f"{dir_type}_dir"]
-        file_path = os.path.join(directory, filename)
-        
+        # Crear el archivo
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
         except Exception as e:
             return False, f"Error al crear archivo: {str(e)}"
         
-        return True, f"Archivo '{filename}' creado correctamente en {dir_type}."
+        # Mensaje de confirmación según donde se creó el archivo
+        if not owner:
+            return True, f"Archivo '{filename}' creado correctamente en carpeta temporal."
+        else:
+            return True, f"Archivo '{filename}' creado correctamente en carpeta access/{owner}."
     
     def read_file(self, filename, dir_type="temporal"):
         # Lee el contenido de un archivo
@@ -702,15 +726,16 @@ class CommandLineInterface(Cmd):
     
     def do_crear_archivo(self, arg):
         # Crea un nuevo archivo
-        # uso: crear_archivo <nombre_archivo>
-        # tipo_directorio: "temporal" (temporal, por defecto)
+        # Uso: 
+        #- crear_archivo <nombre_archivo> (crea en carpeta temporal propia)
+        #- crear_archivo <nombre_archivo> <dueño> (crea en carpeta access/dueño)
         args = arg.strip().split()
         if not args:
-            print("Debe proporcionar un nombre de archivo, crear_archivo <nombre_archivo>")
+            print("Uso:\n- crear_archivo <nombre_archivo> (crea en carpeta temporal)\n- crear_archivo <nombre_archivo> <dueño> (crea en carpeta access/dueño)")
             return
         
         filename = args[0]
-        dir_type = args[1] if len(args) > 1 else "temporal"
+        owner = args[1] if len(args) > 1 else None
         
         print(f"Ingrese el contenido del archivo (termine con una línea que contenga solo '//'):")
         content_lines = []
@@ -721,7 +746,7 @@ class CommandLineInterface(Cmd):
             content_lines.append(line)
         
         content = "\n".join(content_lines)
-        success, message = self.system.create_file(filename, content, dir_type)
+        success, message = self.system.create_file(filename, content, owner)
         print(message)
     
     def do_leer_archivo(self, arg):
@@ -797,13 +822,11 @@ class CommandLineInterface(Cmd):
         print(message)
     
     def do_commit(self, arg):
-        """
-        Realiza un commit.
-        Uso: 
-        - commit                    # Transfiere todo de temporal a permanente
-        - commit <archivo>          # Transfiere un archivo específico de temporal a permanente
-        - commit <archivo> <dueño>  # Transfiere un archivo de la carpeta de acceso a la permanente del dueño
-        """
+        # Realiza un commit.
+        # Uso: 
+        # - commit                    # Transfiere todo de temporal a permanente
+        # - commit <archivo>          # Transfiere un archivo específico de temporal a permanente
+        # - commit <archivo> <dueño>  # Transfiere un archivo de la carpeta de acceso a la permanente del dueño
         args = arg.strip().split()
         
         if len(args) == 0:
