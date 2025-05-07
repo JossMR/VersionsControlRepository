@@ -408,29 +408,53 @@ class FileManagementSystem:
         else:
             return False, "Uso incorrecto. Usa:\n - commit\n - commit <archivo>\n - commit <archivo> <dueño>"
 
-    
-    def update(self):
-        # Actualiza la carpeta temporal con el contenido de la carpeta permanente,
-        # reemplazando cualquier archivo existente
+    def update(self, target_user=None):
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
-        
+
+        # actualizar access/usuario
+        if target_user:
+            if target_user not in self.users:
+                return False, f"El usuario '{target_user}' no existe."
+
+            if self.current_user not in self.users[target_user]["permissions"]:
+                return False, f"No tiene permisos para acceder a los archivos de {target_user}."
+
+            access_temporal_dir = os.path.join(self.root_path, self.current_user, "access", target_user)
+            os.makedirs(access_temporal_dir, exist_ok=True)
+
+            target_perm_dir = self.users[target_user]["permanente_dir"]
+
+            # Limpiar carpeta access
+            for item in os.listdir(access_temporal_dir):
+                item_path = os.path.join(access_temporal_dir, item)
+                if os.path.isfile(item_path):
+                    os.remove(item_path)
+
+            # Copiar archivos de permanente a access
+            for item in os.listdir(target_perm_dir):
+                item_path = os.path.join(target_perm_dir, item)
+                if os.path.isfile(item_path):
+                    shutil.copy2(item_path, access_temporal_dir)
+
+            return True, f"Archivos de {target_user} actualizados correctamente."
+
+        # actualizar la carpeta temporal propia
         temporal_dir = self.users[self.current_user]["temporal_dir"]
         permanente_dir = self.users[self.current_user]["permanente_dir"]
-        
-        # Eliminar archivos actuales en la carpeta temporal
+
         for item in os.listdir(temporal_dir):
             item_path = os.path.join(temporal_dir, item)
             if os.path.isfile(item_path):
                 os.remove(item_path)
-        
-        # Copiar archivos permanentes a temporales
+
         for item in os.listdir(permanente_dir):
             item_path = os.path.join(permanente_dir, item)
             if os.path.isfile(item_path):
                 shutil.copy2(item_path, temporal_dir)
-        
+
         return True, "Update realizado correctamente."
+
     
     def list_versions(self):
         # Lista las versiones disponibles para el usuario actual
@@ -658,7 +682,6 @@ class CommandLineInterface(Cmd):
         if success:
             self.prompt = f'FileSystem ({username})> '
 
-    
     def do_cerrar_sesion(self, arg):
         # Cierra sesion
         # uso: cerrar_sesion
@@ -847,9 +870,11 @@ class CommandLineInterface(Cmd):
         print(message)
     
     def do_update(self, arg):
-        # Realiza un update: actualiza la carpeta temporal con el contenido de la permanente
-        # Uso: update
-        success, message = self.system.update()
+        # Actualiza archivos:
+        # - update                    -> actualiza carpeta temporal del usuario actual
+        # - update <nombre_usuario>   -> actualiza access/<nombre_usuario>
+        target_user = arg.strip() or None
+        success, message = self.system.update(target_user)
         print(message)
     
     def do_listar_versiones(self, arg):
@@ -999,8 +1024,7 @@ class CommandLineInterface(Cmd):
             
             print("\nOtros comandos:")
             print("  ayuda               - Muestra esta ayuda")
-            print("  salir               - Sale del programa")
-            
+            print("  salir               - Sale del programa")      
     
     def do_salir(self, arg):
         # Sale del programa.
