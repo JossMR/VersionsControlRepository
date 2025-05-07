@@ -256,15 +256,26 @@ class FileManagementSystem:
         
         return True, f"Archivo '{filename}' actualizado correctamente."
     
-    def delete_file(self, filename, dir_type="temporal"):
+    def delete_file(self, filename, dir_type="temporal", owner=None):
         # Elimina un archivo
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
         
-        if dir_type not in ["temporal"]:
-            return False, "Tipo de directorio no válido. Use 'temporal'"
+        if dir_type not in ["temporal", "access"]:
+            return False, "Tipo de directorio no válido. Use 'temporal' o 'access'."
         
-        directory = self.users[self.current_user][f"{dir_type}_dir"]
+        if dir_type == "temporal":
+            directory = self.users[self.current_user]["temporal_dir"]
+        elif dir_type == "access":
+            if not owner:
+                return False, "Debe especificar el dueño para eliminar archivos en 'access'."
+            if owner not in self.users:
+                return False, f"El usuario '{owner}' no existe."
+            if self.current_user not in self.users[owner]["permissions"] or \
+               self.users[owner]["permissions"][self.current_user] != "escritura":
+                return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
+            directory = os.path.join(self.root_path, self.current_user, "access", owner)
+        
         file_path = os.path.join(directory, filename)
         
         if not os.path.exists(file_path):
@@ -277,22 +288,20 @@ class FileManagementSystem:
         
         return True, f"Archivo '{filename}' eliminado correctamente."
     
-    def commit(self, filename=None, owner=None):
+    def commit(self, owner=None):
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
         
-        # Modo: commit <archivo> <dueño>
-        if filename and owner:
+        # Modo: commit <dueño>
+        if owner:
             # Carpeta access específica del usuario actual hacia el dueño indicado
             access_path = os.path.join(self.root_path, self.current_user, "access", owner)
-            src_path = os.path.join(access_path, filename)
-
-            if not os.path.exists(src_path):
-                return False, f"El archivo '{filename}' no existe en {access_path}."
+            if not os.path.exists(access_path):
+                return False, f"No hay carpeta de acceso para el usuario '{owner}'."
             
             # Verificar si el usuario actual tiene permisos de escritura sobre el dueño
             if self.current_user not in self.users.get(owner, {}).get("permissions", {}) or \
-            self.users[owner]["permissions"][self.current_user] != "escritura":
+               self.users[owner]["permissions"][self.current_user] != "escritura":
                 return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
             
             # Obtener carpeta permanente del dueño
@@ -300,75 +309,32 @@ class FileManagementSystem:
             if not owner_info:
                 return False, f"No se encontró información del usuario '{owner}'."
             
-            dst_path = os.path.join(owner_info["permanente_dir"], filename)
+            permanente_dir = owner_info["permanente_dir"]
 
             try:
-                # Crear una versión del archivo original si existe
-                if os.path.exists(dst_path):
-                    version_id = str(uuid.uuid4())
-                    version_dir = os.path.join(self.versions_dir, owner, version_id)
-                    os.makedirs(version_dir, exist_ok=True)
-                    
-                    version_info = {
-                        "version_id": version_id,
-                        "timestamp": datetime.datetime.now().isoformat(),
-                        "user": self.current_user,
-                        "modified_file": filename
-                    }
-                    
-                    with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
-                        json.dump(version_info, f, indent=4)
-                    
-                    # Guardar una copia del archivo original
-                    shutil.copy2(dst_path, version_dir)
-                
-                # Copiar el archivo de access a permanente del dueño
-                shutil.copy2(src_path, dst_path)
-            except Exception as e:
-                return False, f"Error al modificar el archivo: {str(e)}"
+                # Sincronizar archivos: eliminar los que no están en access y actualizar los existentes
+                access_files = set(os.listdir(access_path))
+                permanente_files = set(os.listdir(permanente_dir))
 
-            return True, f"Archivo '{filename}' actualizado en la carpeta permanente de '{owner}'."
-        
-        # Modo: commit <archivo> => pasar archivo específico de temporal a permanente
-        elif filename and not owner:
-            temporal_dir = self.users[self.current_user]["temporal_dir"]
-            permanente_dir = self.users[self.current_user]["permanente_dir"]
-            
-            src_path = os.path.join(temporal_dir, filename)
-            dst_path = os.path.join(permanente_dir, filename)
-            
-            if not os.path.exists(src_path):
-                return False, f"El archivo '{filename}' no existe en su carpeta temporal."
-            
-            try:
-                # Crear versión del archivo si ya existe en permanente
-                if os.path.exists(dst_path):
-                    version_id = str(uuid.uuid4())
-                    version_dir = os.path.join(self.versions_dir, self.current_user, version_id)
-                    os.makedirs(version_dir, exist_ok=True)
-                    
-                    version_info = {
-                        "version_id": version_id,
-                        "timestamp": datetime.datetime.now().isoformat(),
-                        "user": self.current_user,
-                        "modified_file": filename
-                    }
-                    
-                    with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
-                        json.dump(version_info, f, indent=4)
-                    
-                    # Guardar una copia del archivo original
-                    shutil.copy2(dst_path, version_dir)
-                
-                # Copiar archivo específico a carpeta permanente
-                shutil.copy2(src_path, dst_path)
-                
-                return True, f"Archivo '{filename}' movido a carpeta permanente."
+                # Eliminar archivos que ya no están en access
+                for file in permanente_files - access_files:
+                    file_path = os.path.join(permanente_dir, file)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+
+                # Copiar o actualizar archivos desde access a permanente
+                for file in access_files:
+                    src_path = os.path.join(access_path, file)
+                    dst_path = os.path.join(permanente_dir, file)
+                    shutil.copy2(src_path, dst_path)
+
             except Exception as e:
-                return False, f"Error al realizar commit del archivo: {str(e)}"
+                return False, f"Error al sincronizar archivos: {str(e)}"
+
+            return True, f"Commit realizado para la carpeta permanente de '{owner}'."
 
         # Modo: commit (sin argumentos) => pasar temporal propio a permanente
-        elif not filename and not owner:
+        else:
             temporal_dir = self.users[self.current_user]["temporal_dir"]
             permanente_dir = self.users[self.current_user]["permanente_dir"]
             
@@ -404,9 +370,6 @@ class FileManagementSystem:
                     shutil.copy2(item_path, permanente_dir)
             
             return True, "Commit completo realizado correctamente."
-
-        else:
-            return False, "Uso incorrecto. Usa:\n - commit\n - commit <archivo>\n - commit <archivo> <dueño>"
 
     def update(self, target_user=None):
         if not self.current_user:
@@ -831,40 +794,35 @@ class CommandLineInterface(Cmd):
     
     def do_eliminar_archivo(self, arg):
         # Elimina un archivo
-        # uso: eliminar_archivo <nombre_archivo> [tipo_directorio]
-        # tipo_directorio: "temporal" (temporal, por defecto) o "permanente" (permanente)
+        # uso: eliminar_archivo <nombre_archivo> [dueño]
         args = arg.strip().split()
         if not args:
-            print("Debe proporcionar un nombre de archivo, eliminar_archivo <nombre_archivo>")
+            print("Debe proporcionar un nombre de archivo, eliminar_archivo <nombre_archivo> [dueño]")
             return
         
         filename = args[0]
-        dir_type = args[1] if len(args) > 1 else "temporal"
+        owner = args[1] if len(args) > 1 else None
+        dir_type = "access" if owner else "temporal"
         
-        success, message = self.system.delete_file(filename, dir_type)
+        success, message = self.system.delete_file(filename, dir_type, owner)
         print(message)
     
     def do_commit(self, arg):
         # Realiza un commit.
         # Uso: 
         # - commit                    # Transfiere todo de temporal a permanente
-        # - commit <archivo>          # Transfiere un archivo específico de temporal a permanente
-        # - commit <archivo> <dueño>  # Transfiere un archivo de la carpeta de acceso a la permanente del dueño
+        # - commit <dueño>            # Transfiere toda la carpeta de acceso a la permanente del dueño
         args = arg.strip().split()
         
         if len(args) == 0:
             # Commit completo: temporal -> permanente
             success, message = self.system.commit()
         elif len(args) == 1:
-            # Commit de un archivo específico: temporal/<archivo> -> permanente/<archivo>
-            filename = args[0]
-            success, message = self.system.commit(filename=filename)
-        elif len(args) == 2:
-            # Commit desde carpeta de acceso: access/<dueño>/<archivo> -> <dueño>/permanente/<archivo>
-            filename, owner = args
-            success, message = self.system.commit(filename=filename, owner=owner)
+            # Commit de toda la carpeta de acceso de un dueño
+            owner = args[0]
+            success, message = self.system.commit(owner=owner)
         else:
-            print("Uso incorrecto. Use:\n - commit\n - commit <archivo>\n - commit <archivo> <dueño>")
+            print("Uso incorrecto. Use:\n - commit\n - commit <dueño>")
             return
         
         print(message)
