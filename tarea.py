@@ -253,50 +253,137 @@ class FileManagementSystem:
         
         return True, f"Archivo '{filename}' eliminado correctamente."
     
-    def commit(self):
-        # Transfiere los archivos de la carpeta temporal a la permanente,
-        # guardando una versión de los archivos permanentes actuales.
+    def commit(self, filename=None, owner=None):
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
         
-        temporal_dir = self.users[self.current_user]["temporal_dir"]
-        permanente_dir = self.users[self.current_user]["permanente_dir"]
+        # Modo: commit <archivo> <dueño>
+        if filename and owner:
+            # Carpeta access específica del usuario actual hacia el dueño indicado
+            access_path = os.path.join(self.root_path, self.current_user, "access", owner)
+            src_path = os.path.join(access_path, filename)
+
+            if not os.path.exists(src_path):
+                return False, f"El archivo '{filename}' no existe en {access_path}."
+            
+            # Verificar si el usuario actual tiene permisos de escritura sobre el dueño
+            if self.current_user not in self.users.get(owner, {}).get("permissions", {}) or \
+            self.users[owner]["permissions"][self.current_user] != "escritura":
+                return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
+            
+            # Obtener carpeta permanente del dueño
+            owner_info = self.users.get(owner)
+            if not owner_info:
+                return False, f"No se encontró información del usuario '{owner}'."
+            
+            dst_path = os.path.join(owner_info["permanente_dir"], filename)
+
+            try:
+                # Crear una versión del archivo original si existe
+                if os.path.exists(dst_path):
+                    version_id = str(uuid.uuid4())
+                    version_dir = os.path.join(self.versions_dir, owner, version_id)
+                    os.makedirs(version_dir, exist_ok=True)
+                    
+                    version_info = {
+                        "version_id": version_id,
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "user": self.current_user,
+                        "modified_file": filename
+                    }
+                    
+                    with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
+                        json.dump(version_info, f, indent=4)
+                    
+                    # Guardar una copia del archivo original
+                    shutil.copy2(dst_path, version_dir)
+                
+                # Copiar el archivo de access a permanente del dueño
+                shutil.copy2(src_path, dst_path)
+            except Exception as e:
+                return False, f"Error al modificar el archivo: {str(e)}"
+
+            return True, f"Archivo '{filename}' actualizado en la carpeta permanente de '{owner}'."
         
-        # Crear una versión con los archivos actuales de la carpeta permanente
-        if os.path.exists(permanente_dir) and os.listdir(permanente_dir):
-            version_id = str(uuid.uuid4())
-            version_dir = os.path.join(self.versions_dir, self.current_user, version_id)
-            os.makedirs(version_dir, exist_ok=True)
+        # Modo: commit <archivo> => pasar archivo específico de temporal a permanente
+        elif filename and not owner:
+            temporal_dir = self.users[self.current_user]["temporal_dir"]
+            permanente_dir = self.users[self.current_user]["permanente_dir"]
             
-            # Registrar datos de la versión
-            version_info = {
-                "version_id": version_id,
-                "timestamp": datetime.datetime.now().isoformat(),
-                "user": self.current_user
-            }
+            src_path = os.path.join(temporal_dir, filename)
+            dst_path = os.path.join(permanente_dir, filename)
             
-            with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
-                json.dump(version_info, f, indent=4)
+            if not os.path.exists(src_path):
+                return False, f"El archivo '{filename}' no existe en su carpeta temporal."
             
-            # Copiar archivos a la carpeta de versión
+            try:
+                # Crear versión del archivo si ya existe en permanente
+                if os.path.exists(dst_path):
+                    version_id = str(uuid.uuid4())
+                    version_dir = os.path.join(self.versions_dir, self.current_user, version_id)
+                    os.makedirs(version_dir, exist_ok=True)
+                    
+                    version_info = {
+                        "version_id": version_id,
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "user": self.current_user,
+                        "modified_file": filename
+                    }
+                    
+                    with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
+                        json.dump(version_info, f, indent=4)
+                    
+                    # Guardar una copia del archivo original
+                    shutil.copy2(dst_path, version_dir)
+                
+                # Copiar archivo específico a carpeta permanente
+                shutil.copy2(src_path, dst_path)
+                
+                return True, f"Archivo '{filename}' movido a carpeta permanente."
+            except Exception as e:
+                return False, f"Error al realizar commit del archivo: {str(e)}"
+
+        # Modo: commit (sin argumentos) => pasar temporal propio a permanente
+        elif not filename and not owner:
+            temporal_dir = self.users[self.current_user]["temporal_dir"]
+            permanente_dir = self.users[self.current_user]["permanente_dir"]
+            
+            # Crear versión si hay archivos existentes
+            if os.path.exists(permanente_dir) and os.listdir(permanente_dir):
+                version_id = str(uuid.uuid4())
+                version_dir = os.path.join(self.versions_dir, self.current_user, version_id)
+                os.makedirs(version_dir, exist_ok=True)
+                
+                version_info = {
+                    "version_id": version_id,
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "user": self.current_user
+                }
+                
+                with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
+                    json.dump(version_info, f, indent=4)
+                
+                for item in os.listdir(permanente_dir):
+                    item_path = os.path.join(permanente_dir, item)
+                    if os.path.isfile(item_path):
+                        shutil.copy2(item_path, version_dir)
+            
+            # Limpiar permanente y pasar archivos desde temporal
             for item in os.listdir(permanente_dir):
                 item_path = os.path.join(permanente_dir, item)
                 if os.path.isfile(item_path):
-                    shutil.copy2(item_path, version_dir)
-        
-        # Eliminar archivos actuales en la carpeta permanente
-        for item in os.listdir(permanente_dir):
-            item_path = os.path.join(permanente_dir, item)
-            if os.path.isfile(item_path):
-                os.remove(item_path)
-        
-        # Copiar archivos temporales a permanentes
-        for item in os.listdir(temporal_dir):
-            item_path = os.path.join(temporal_dir, item)
-            if os.path.isfile(item_path):
-                shutil.copy2(item_path, permanente_dir)
-        
-        return True, "Commit realizado correctamente."
+                    os.remove(item_path)
+            
+            for item in os.listdir(temporal_dir):
+                item_path = os.path.join(temporal_dir, item)
+                if os.path.isfile(item_path):
+                    shutil.copy2(item_path, permanente_dir)
+            
+            return True, "Commit completo realizado correctamente."
+
+        else:
+            return False, "Uso incorrecto. Usa:\n - commit\n - commit <archivo>\n - commit <archivo> <dueño>"
+
     
     def update(self):
         # Actualiza la carpeta temporal con el contenido de la carpeta permanente,
@@ -443,9 +530,9 @@ class FileManagementSystem:
         
         permission = self.users[target_user]["permissions"][self.current_user]
         if permission != "escritura":
-            return False, f"No tiene permiso de de lectura para los archivos de {target_user}."
+            return False, f"No tiene permiso de de escritura para los archivos de {target_user}."
         
-        file_path = os.path.join(self.users[target_user]["permanente_dir"], filename)
+        file_path = os.path.join(self.root_path, self.current_user, "access", target_user, filename)
         
         if not os.path.exists(file_path):
             return False, f"El archivo '{filename}' no existe."
@@ -710,9 +797,30 @@ class CommandLineInterface(Cmd):
         print(message)
     
     def do_commit(self, arg):
-        # Transfiere los archivos de la carpeta temporal a la permanente
-        # uso: commit
-        success, message = self.system.commit()
+        """
+        Realiza un commit.
+        Uso: 
+        - commit                    # Transfiere todo de temporal a permanente
+        - commit <archivo>          # Transfiere un archivo específico de temporal a permanente
+        - commit <archivo> <dueño>  # Transfiere un archivo de la carpeta de acceso a la permanente del dueño
+        """
+        args = arg.strip().split()
+        
+        if len(args) == 0:
+            # Commit completo: temporal -> permanente
+            success, message = self.system.commit()
+        elif len(args) == 1:
+            # Commit de un archivo específico: temporal/<archivo> -> permanente/<archivo>
+            filename = args[0]
+            success, message = self.system.commit(filename=filename)
+        elif len(args) == 2:
+            # Commit desde carpeta de acceso: access/<dueño>/<archivo> -> <dueño>/permanente/<archivo>
+            filename, owner = args
+            success, message = self.system.commit(filename=filename, owner=owner)
+        else:
+            print("Uso incorrecto. Use:\n - commit\n - commit <archivo>\n - commit <archivo> <dueño>")
+            return
+        
         print(message)
     
     def do_update(self, arg):
@@ -870,20 +978,10 @@ class CommandLineInterface(Cmd):
             print("  ayuda               - Muestra esta ayuda")
             print("  salir               - Sale del programa")
             
-            print("\nPara ver ayuda detallada de un comando, escriba: ayuda <comando>")
-    
-    def help_ayuda(self):
-        """Ayuda para el comando ayuda."""
-        print("Muestra la ayuda para los comandos.")
-        print("Uso: ayuda [comando]")
-        print("Si se especifica un comando, muestra la ayuda detallada para ese comando.")
-        print("Si no se especifica un comando, muestra la lista de todos los comandos disponibles.")
     
     def do_salir(self, arg):
-        """
-        Sale del programa.
-        Uso: salir
-        """
+        # Sale del programa.
+        # uso: salir
         print("¡Hasta luego!")
         return True
     
