@@ -234,27 +234,38 @@ class FileManagementSystem:
         
         return True, content
     
-    def update_file(self, filename, content, dir_type="temporal"):
-        # Actualiza el contenido de un archivo existente
+    def modify_file(self, filename, dir_type="temporal", owner=None):
+        # Actualiza la fecha de modificación de un archivo existente
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
         
-        if dir_type not in ["temporal"]:
-            return False, "Tipo de directorio no válido. Use 'temporal'"
+        if dir_type == "temporal":
+            directory = self.users[self.current_user]["temporal_dir"]
+        elif dir_type == "access":
+            if not owner:
+                return False, "Debe especificar el dueño para modificar archivos en 'access'."
+            if owner not in self.users:
+                return False, f"El usuario '{owner}' no existe."
+            if self.current_user not in self.users[owner]["permissions"] or \
+               self.users[owner]["permissions"][self.current_user] != "escritura":
+                return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
+            directory = os.path.join(self.root_path, self.current_user, "access", owner)
+        else:
+            return False, "Tipo de directorio no válido. Use 'temporal' o 'access'."
         
-        directory = self.users[self.current_user][f"{dir_type}_dir"]
         file_path = os.path.join(directory, filename)
         
         if not os.path.exists(file_path):
             return False, f"El archivo '{filename}' no existe."
         
         try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            # Actualizar la fecha de modificación del archivo
+            current_time = datetime.datetime.now().timestamp()
+            os.utime(file_path, (current_time, current_time))
         except Exception as e:
-            return False, f"Error al actualizar archivo: {str(e)}"
+            return False, f"Error al actualizar la fecha del archivo: {str(e)}"
         
-        return True, f"Archivo '{filename}' actualizado correctamente."
+        return True, f"Archivo '{filename}' modificado correctamente."
     
     def delete_file(self, filename, dir_type="temporal", owner=None):
         # Elimina un archivo
@@ -749,38 +760,19 @@ class CommandLineInterface(Cmd):
             print(result)
     
     def do_modificar_archivo(self, arg):
-        # Modifica un archivo existente
-        # uso: modificar_archivo <nombre_archivo> [tipo_directorio]
-        # tipo_directorio: "temporal" (temporal, por defecto)
+        # Modifica la fecha de un archivo existente
+        # uso: modificar_archivo <nombre_archivo> [dueño]
+        # Si no se especifica dueño, se modifica en la carpeta temporal del usuario actual.
         args = arg.strip().split()
         if not args:
-            print("Debe proporcionar un nombre de archivo, modificar_archivo <nombre_archivo>")
+            print("Debe proporcionar un nombre de archivo,modificar_archivo <nombre_archivo> o modificar_archivo <nombre_archivo> [dueño]")
             return
         
         filename = args[0]
-        dir_type = args[1] if len(args) > 1 else "temporal"
+        owner = args[1] if len(args) > 1 else None
+        dir_type = "access" if owner else "temporal"
         
-        # Leer contenido actual para mostrarlo
-        success, current_content = self.system.read_file(filename, dir_type)
-        if not success:
-            print(current_content)
-            return
-        
-        print(f"Contenido actual del archivo '{filename}':")
-        print("=" * 50)
-        print(current_content)
-        print("=" * 50)
-        
-        print(f"Ingrese el nuevo contenido (termine con una línea que contenga solo '//'):")
-        content_lines = []
-        while True:
-            line = input()
-            if line == "//":
-                break
-            content_lines.append(line)
-        
-        content = "\n".join(content_lines)
-        success, message = self.system.update_file(filename, content, dir_type)
+        success, message = self.system.modify_file(filename, dir_type, owner)
         print(message)
     
     def do_eliminar_archivo(self, arg):
@@ -952,19 +944,19 @@ class CommandLineInterface(Cmd):
             print("  revocar_permiso     - Revoca permisos a otro usuario (revocar_permiso <nombre_usuario>)")
             
             print("\nGestión de archivos:")
-            print("  mis_archivos     - Lista archivos en carpeta temporal o permanente (mis_archivos [tipo])")
             print("  crear_archivo       - Crea un nuevo archivo (crear_archivo <nombre_archivo> [dueño] o crear_archivo <nombre_archivo>)")
-            print("  ver_archivo        - Ver el contenido de un archivo (ver_archivo <nombre_archivo> [tipo])")
-            print("  modificar_archivo   - *Modifica un archivo existente")
+            print("  modificar_archivo   - Modifica un archivo (modificar_archivo <nombre_archivo> [dueño] o modificar_archivo <nombre_archivo>)")
             print("  eliminar_archivo    - Elimina un archivo (eliminar_archivo <nombre_archivo> [dueño] o eliminar_archivo <nombre_archivo>)")
+            print("  ver_archivo        - *quitar Ver el contenido de un archivo (ver_archivo <nombre_archivo> [tipo])")
             
             print("\nControl de versiones:")
-            print("  commit              - Transfiere de temporal a permanente y crea versión")
-            print("  update              - Actualiza temporal con contenido de permanente")
-            print("  listar_versiones    - Lista versiones disponibles")
-            print("  recuperar_version   - Recupera una versión anterior")
+            print("  commit              - Transfiere de temporal a permanente y crea versión (commit o commit <dueño>)")
+            print("  update              - Actualiza temporal con contenido de permanente (update o update <dueño>)")
+            print("  listar_versiones    - *Lista versiones disponibles")
+            print("  recuperar_version   - *Recupera una versión anterior")
             
-            print("\nInteracción con otros usuarios:")
+            print("\nListado de archivos y carpetas:")
+            print("  mis_archivos     - Lista archivos en carpeta temporal o permanente (mis_archivos [tipo])")
             print("  carpetas_accesibles   - Lista carpetas a las que tiene acceso (carpetas_accesibles <nombre_usuario>)")
             print("  archivos_accesibles    - Accede a archivos de otro usuario (archivos_accesibles <nombre_usuario>)")
             print("  leer_archivo_usuario - *Lee archivo de otro usuario")
