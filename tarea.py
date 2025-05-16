@@ -172,7 +172,7 @@ class FileManagementSystem:
     def create_file(self, filename, content, owner=None):
         if not self.current_user:
             return False, "Iniciar sesión primero."
-        
+
         # Si no se especifica un dueño, crear el archivo en la carpeta temporal del usuario actual
         if not owner:
             directory = self.users[self.current_user]["temporal_dir"]
@@ -189,7 +189,7 @@ class FileManagementSystem:
             
             # Ruta para la carpeta access/owner del usuario actual
             access_owner_dir = os.path.join(self.root_path, self.current_user, "access", owner)
-            
+
             # Verificar si la carpeta existe, si no, crearla
             if not os.path.exists(access_owner_dir):
                 try:
@@ -198,20 +198,20 @@ class FileManagementSystem:
                     return False, f"Error al crear directorio de acceso: {str(e)}"
             
             file_path = os.path.join(access_owner_dir, filename)
-        
-        # Crear el archivo
+
+        # Crear el archivo (vacío o con contenido)
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
         except Exception as e:
             return False, f"Error al crear archivo: {str(e)}"
-        
+
         # Mensaje de confirmación según donde se creó el archivo
         if not owner:
             return True, f"Archivo '{filename}' creado correctamente en carpeta temporal."
         else:
             return True, f"Archivo '{filename}' creado correctamente en carpeta access/{owner}."
-    
+  
     def read_file(self, filename, dir_type="temporal"):
         # Lee el contenido de un archivo
         if not self.current_user:
@@ -417,8 +417,7 @@ class FileManagementSystem:
                 shutil.copy2(item_path, temporal_dir)
 
         return True, "Update realizado correctamente."
-
-    
+ 
     def list_versions(self):
         # Lista las versiones disponibles para el usuario actual
         if not self.current_user:
@@ -678,9 +677,9 @@ class CommandLineInterface(Cmd):
         success, message = self.system.revoke_permission(target_user)
         print(message)
     
-    def do_listar_archivos(self, arg):
+    def do_mis_archivos(self, arg):
         # Lista los archivos en una carpeta
-        # uso: listar_archivos [tipo_directorio]
+        # uso: mis_archivos [tipo_directorio]
         # tipo_directorio: "temporal" (temporal, por defecto) o "permanente"
         dir_type = arg.strip() or "temporal"
         success, result = self.system.list_files(dir_type)
@@ -695,9 +694,9 @@ class CommandLineInterface(Cmd):
         else:
             print(result)
     
-    def do_listar_accesibles(self, arg):
+    def do_carpetas_accesibles(self, arg):
         # Lista las carpetas a las que el usuario tiene acceso
-        # uso: listar_accesibles
+        # uso: carpetas_accesibles
         success, result = self.system.list_accessible_folders()
         
         if success:
@@ -712,36 +711,28 @@ class CommandLineInterface(Cmd):
     
     def do_crear_archivo(self, arg):
         # Crea un nuevo archivo
-        # Uso: 
-        #- crear_archivo <nombre_archivo> (crea en carpeta temporal propia)
-        #- crear_archivo <nombre_archivo> <dueño> (crea en carpeta access/dueño)
+        # Uso:
+        # - crear_archivo <nombre_archivo.formato> (crea en carpeta temporal propia)
+        # - crear_archivo <nombre_archivo.formato> <dueño> (crea en carpeta access/dueño)
         args = arg.strip().split()
         if not args:
-            print("Uso:\n- crear_archivo <nombre_archivo> (crea en carpeta temporal)\n- crear_archivo <nombre_archivo> <dueño> (crea en carpeta access/dueño)")
+            print("Uso:\n- crear_archivo <nombre_archivo.formato> (crea en carpeta temporal)\n- crear_archivo <nombre_archivo.formato> <dueño> (crea en carpeta access/dueño)")
             return
-        
+
         filename = args[0]
         owner = args[1] if len(args) > 1 else None
-        
-        print(f"Ingrese el contenido del archivo (termine con una línea que contenga solo '//'):")
-        content_lines = []
-        while True:
-            line = input()
-            if line == "//":
-                break
-            content_lines.append(line)
-        
-        content = "\n".join(content_lines)
+
+        content = " "
         success, message = self.system.create_file(filename, content, owner)
         print(message)
-    
-    def do_leer_archivo(self, arg):
+
+    def do_ver_archivo(self, arg):
         # Lee el contenido de un archivo
-        # uso: leer_archivo <nombre_archivo> [tipo_directorio]
+        # uso: ver_archivo <nombre_archivo> [tipo_directorio]
         # tipo_directorio: "temporal" (temporal, por defecto) o "permanente"
         args = arg.strip().split()
         if not args:
-            print("Debe proporcionar un nombre de archivo, leer_archivo <nombre_archivo> [tipo_directorio] ")
+            print("Debe proporcionar un nombre de archivo, ver_archivo <nombre_archivo> [tipo_directorio] ")
             return
         
         filename = args[0]
@@ -862,12 +853,12 @@ class CommandLineInterface(Cmd):
         success, message = self.system.recover_version(version_id, "carpeta")
         print(message)
     
-    def do_acceder_archivos(self, arg):
+    def do_archivos_accesibles(self, arg):
         # Accede a los archivos de otro usuario
-        # uso: acceder_archivos <nombre_usuario>
+        # uso: archivos_accesibles <nombre_usuario>
         target_user = arg.strip()
         if not target_user:
-            print("Debe proporcionar un nombre de usuario, acceder_archivos <nombre_usuario>")
+            print("Debe proporcionar un nombre de usuario, archivos_accesibles <nombre_usuario>")
             return
         
         success, result = self.system.access_user_files(target_user)
@@ -954,18 +945,18 @@ class CommandLineInterface(Cmd):
             print("\nComandos disponibles:")
             
             print("\nGestión de usuarios:")
-            print("  registrar           - Registra un nuevo usuario")
-            print("  iniciar             - Inicia sesión")
-            print("  cerrar_sesion        - Cierra la sesión actual")
-            print("  otorgar_permiso     - Otorga permisos a otro usuario")
-            print("  revocar_permiso     - Revoca permisos a otro usuario")
+            print("  registrar           - Registra un nuevo usuario ()(registrar <nombre_usuario>)")
+            print("  iniciar             - Inicia sesión (iniciar <nombre_usuario>)")
+            print("  cerrar_sesion        - Cierra la sesión actual (cerrar_sesion)")
+            print("  otorgar_permiso     - Otorga permisos a otro usuario (otorgar_permiso <nombre_usuario> <tipo_permiso>)")
+            print("  revocar_permiso     - Revoca permisos a otro usuario (revocar_permiso <nombre_usuario>)")
             
-            print("\nGestión de archivos propios:")
-            print("  listar_archivos     - Lista archivos en carpeta temporal o permanente")
-            print("  crear_archivo       - Crea un nuevo archivo")
-            print("  leer_archivo        - Lee el contenido de un archivo")
-            print("  modificar_archivo   - Modifica un archivo existente")
-            print("  eliminar_archivo    - Elimina un archivo")
+            print("\nGestión de archivos:")
+            print("  mis_archivos     - Lista archivos en carpeta temporal o permanente (mis_archivos [tipo])")
+            print("  crear_archivo       - Crea un nuevo archivo (crear_archivo <nombre_archivo> [dueño] o crear_archivo <nombre_archivo>)")
+            print("  ver_archivo        - Ver el contenido de un archivo (ver_archivo <nombre_archivo> [tipo])")
+            print("  modificar_archivo   - *Modifica un archivo existente")
+            print("  eliminar_archivo    - Elimina un archivo (eliminar_archivo <nombre_archivo> [dueño] o eliminar_archivo <nombre_archivo>)")
             
             print("\nControl de versiones:")
             print("  commit              - Transfiere de temporal a permanente y crea versión")
@@ -974,11 +965,11 @@ class CommandLineInterface(Cmd):
             print("  recuperar_version   - Recupera una versión anterior")
             
             print("\nInteracción con otros usuarios:")
-            print("  listar_accesibles   - Lista carpetas a las que tiene acceso")
-            print("  acceder_archivos    - Accede a archivos de otro usuario")
-            print("  leer_archivo_usuario - Lee archivo de otro usuario")
-            print("  modificar_archivo_usuario - Modifica archivo de otro usuario")
-            print("  actualizar_archivos_usuario - Actualiza archivos de acceso")
+            print("  carpetas_accesibles   - Lista carpetas a las que tiene acceso (carpetas_accesibles <nombre_usuario>)")
+            print("  archivos_accesibles    - Accede a archivos de otro usuario (archivos_accesibles <nombre_usuario>)")
+            print("  leer_archivo_usuario - *Lee archivo de otro usuario")
+            print("  modificar_archivo_usuario - *Modifica archivo de otro usuario")
+            print("  actualizar_archivos_usuario - *ya Actualiza archivos de acceso")
             
             print("\nOtros comandos:")
             print("  ayuda               - Muestra esta ayuda")
