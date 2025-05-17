@@ -169,78 +169,102 @@ class FileManagementSystem:
 
         return True, accessible
     
-    def create_file(self, filename, content, dir_type="temporal"):
-        # Crea un nuevo archivo en la carpeta especificada
+    def create_file(self, filename, content, owner=None):
         if not self.current_user:
             return False, "Iniciar sesión primero."
-        
-        if dir_type not in ["temporal"]:
-            return False, "Tipo de directorio no válido usar 'temporal'."
-        
-        directory = self.users[self.current_user][f"{dir_type}_dir"]
-        file_path = os.path.join(directory, filename)
-        
+
+        # Si no se especifica un dueño, crear el archivo en la carpeta temporal del usuario actual
+        if not owner:
+            directory = self.users[self.current_user]["temporal_dir"]
+            file_path = os.path.join(directory, filename)
+        else:
+            # Verificar que el owner (otro usuario) existe
+            if owner not in self.users:
+                return False, f"El usuario '{owner}' no existe."
+            
+            # Verificar si el usuario actual tiene permisos de escritura para el dueño especificado
+            if self.current_user not in self.users.get(owner, {}).get("permissions", {}) or \
+            self.users[owner]["permissions"][self.current_user] != "escritura":
+                return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
+            
+            # Ruta para la carpeta access/owner del usuario actual
+            access_owner_dir = os.path.join(self.root_path, self.current_user, "access", owner)
+
+            # Verificar si la carpeta existe, si no, crearla
+            if not os.path.exists(access_owner_dir):
+                try:
+                    os.makedirs(access_owner_dir)
+                except Exception as e:
+                    return False, f"Error al crear directorio de acceso: {str(e)}"
+            
+            file_path = os.path.join(access_owner_dir, filename)
+
+        # Crear el archivo (vacío o con contenido)
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
         except Exception as e:
             return False, f"Error al crear archivo: {str(e)}"
-        
-        return True, f"Archivo '{filename}' creado correctamente en {dir_type}."
+
+        # Mensaje de confirmación según donde se creó el archivo
+        if not owner:
+            return True, f"Archivo '{filename}' creado correctamente en carpeta temporal."
+        else:
+            return True, f"Archivo '{filename}' creado correctamente en carpeta access/{owner}."
     
-    def read_file(self, filename, dir_type="temporal"):
-        # Lee el contenido de un archivo
+    def modify_file(self, filename, dir_type="temporal", owner=None):
+        # Actualiza la fecha de modificación de un archivo existente
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
         
-        if dir_type not in ["temporal", "permanente"]:
-            return False, "Tipo de directorio no válido usar 'temporal' o 'permanente'."
+        if dir_type == "temporal":
+            directory = self.users[self.current_user]["temporal_dir"]
+        elif dir_type == "access":
+            if not owner:
+                return False, "Debe especificar el dueño para modificar archivos en 'access'."
+            if owner not in self.users:
+                return False, f"El usuario '{owner}' no existe."
+            if self.current_user not in self.users[owner]["permissions"] or \
+               self.users[owner]["permissions"][self.current_user] != "escritura":
+                return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
+            directory = os.path.join(self.root_path, self.current_user, "access", owner)
+        else:
+            return False, "Tipo de directorio no válido. Use 'temporal' o 'access'."
         
-        directory = self.users[self.current_user][f"{dir_type}_dir"]
         file_path = os.path.join(directory, filename)
         
         if not os.path.exists(file_path):
             return False, f"El archivo '{filename}' no existe."
         
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            # Actualizar la fecha de modificación del archivo
+            current_time = datetime.datetime.now().timestamp()
+            os.utime(file_path, (current_time, current_time))
         except Exception as e:
-            return False, f"Error al leer archivo: {str(e)}"
+            return False, f"Error al actualizar la fecha del archivo: {str(e)}"
         
-        return True, content
+        return True, f"Archivo '{filename}' modificado correctamente."
     
-    def update_file(self, filename, content, dir_type="temporal"):
-        # Actualiza el contenido de un archivo existente
-        if not self.current_user:
-            return False, "Debe iniciar sesión primero."
-        
-        if dir_type not in ["temporal"]:
-            return False, "Tipo de directorio no válido. Use 'temporal'"
-        
-        directory = self.users[self.current_user][f"{dir_type}_dir"]
-        file_path = os.path.join(directory, filename)
-        
-        if not os.path.exists(file_path):
-            return False, f"El archivo '{filename}' no existe."
-        
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-        except Exception as e:
-            return False, f"Error al actualizar archivo: {str(e)}"
-        
-        return True, f"Archivo '{filename}' actualizado correctamente."
-    
-    def delete_file(self, filename, dir_type="temporal"):
+    def delete_file(self, filename, dir_type="temporal", owner=None):
         # Elimina un archivo
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
         
-        if dir_type not in ["temporal"]:
-            return False, "Tipo de directorio no válido. Use 'temporal'"
+        if dir_type not in ["temporal", "access"]:
+            return False, "Tipo de directorio no válido. Use 'temporal' o 'access'."
         
-        directory = self.users[self.current_user][f"{dir_type}_dir"]
+        if dir_type == "temporal":
+            directory = self.users[self.current_user]["temporal_dir"]
+        elif dir_type == "access":
+            if not owner:
+                return False, "Debe especificar el dueño para eliminar archivos en 'access'."
+            if owner not in self.users:
+                return False, f"El usuario '{owner}' no existe."
+            if self.current_user not in self.users[owner]["permissions"] or \
+               self.users[owner]["permissions"][self.current_user] != "escritura":
+                return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
+            directory = os.path.join(self.root_path, self.current_user, "access", owner)
+        
         file_path = os.path.join(directory, filename)
         
         if not os.path.exists(file_path):
@@ -253,74 +277,158 @@ class FileManagementSystem:
         
         return True, f"Archivo '{filename}' eliminado correctamente."
     
-    def commit(self):
-        # Transfiere los archivos de la carpeta temporal a la permanente,
-        # guardando una versión de los archivos permanentes actuales.
+    def commit(self, owner=None):
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
         
-        temporal_dir = self.users[self.current_user]["temporal_dir"]
-        permanente_dir = self.users[self.current_user]["permanente_dir"]
+        # Modo: commit <dueño>
+        if owner:
+            # Carpeta access específica del usuario actual hacia el dueño indicado
+            access_path = os.path.join(self.root_path, self.current_user, "access", owner)
+            if not os.path.exists(access_path):
+                return False, f"No hay carpeta de acceso para el usuario '{owner}'."
+            
+            # Verificar si el usuario actual tiene permisos de escritura sobre el dueño
+            if self.current_user not in self.users.get(owner, {}).get("permissions", {}) or \
+               self.users[owner]["permissions"][self.current_user] != "escritura":
+                return False, f"No tienes permisos de escritura sobre los archivos de {owner}."
+            
+            # Obtener carpeta permanente del dueño
+            owner_info = self.users.get(owner)
+            if not owner_info:
+                return False, f"No se encontró información del usuario '{owner}'."
+            
+            permanente_dir = owner_info["permanente_dir"]
+
+            # Crear una versión de la carpeta permanente del dueño
+            if os.path.exists(permanente_dir) and os.listdir(permanente_dir):
+                version_id = str(uuid.uuid4())
+                version_dir = os.path.join(self.versions_dir, owner, version_id)
+                os.makedirs(version_dir, exist_ok=True)
+                
+                version_info = {
+                    "version_id": version_id,
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "user": self.current_user,
+                    "source": "access"
+                }
+                
+                with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
+                    json.dump(version_info, f, indent=4)
+                
+                for item in os.listdir(permanente_dir):
+                    item_path = os.path.join(permanente_dir, item)
+                    if os.path.isfile(item_path):
+                        shutil.copy2(item_path, version_dir)
+
+            try:
+                # Sincronizar archivos: eliminar los que no están en access y actualizar los existentes
+                access_files = set(os.listdir(access_path))
+                permanente_files = set(os.listdir(permanente_dir))
+
+                # Eliminar archivos que ya no están en access
+                for file in permanente_files - access_files:
+                    file_path = os.path.join(permanente_dir, file)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+
+                # Copiar o actualizar archivos desde access a permanente
+                for file in access_files:
+                    src_path = os.path.join(access_path, file)
+                    dst_path = os.path.join(permanente_dir, file)
+                    shutil.copy2(src_path, dst_path)
+
+            except Exception as e:
+                return False, f"Error al sincronizar archivos: {str(e)}"
+
+            return True, f"Commit realizado para la carpeta permanente de '{owner}'."
+
+        # Modo: commit (sin argumentos) => pasar temporal propio a permanente
+        else:
+            temporal_dir = self.users[self.current_user]["temporal_dir"]
+            permanente_dir = self.users[self.current_user]["permanente_dir"]
+            
+            # Crear una versión de la carpeta permanente propia
+            if os.path.exists(permanente_dir) and os.listdir(permanente_dir):
+                version_id = str(uuid.uuid4())
+                version_dir = os.path.join(self.versions_dir, self.current_user, version_id)
+                os.makedirs(version_dir, exist_ok=True)
+                
+                version_info = {
+                    "version_id": version_id,
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "user": self.current_user,
+                    "source": "temporal"
+                }
+                
+                with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
+                    json.dump(version_info, f, indent=4)
+                
+                for item in os.listdir(permanente_dir):
+                    item_path = os.path.join(permanente_dir, item)
+                    if os.path.isfile(item_path):
+                        shutil.copy2(item_path, version_dir)
         
-        # Crear una versión con los archivos actuales de la carpeta permanente
-        if os.path.exists(permanente_dir) and os.listdir(permanente_dir):
-            version_id = str(uuid.uuid4())
-            version_dir = os.path.join(self.versions_dir, self.current_user, version_id)
-            os.makedirs(version_dir, exist_ok=True)
-            
-            # Registrar datos de la versión
-            version_info = {
-                "version_id": version_id,
-                "timestamp": datetime.datetime.now().isoformat(),
-                "user": self.current_user
-            }
-            
-            with open(os.path.join(version_dir, "metadata.json"), 'w', encoding='utf-8') as f:
-                json.dump(version_info, f, indent=4)
-            
-            # Copiar archivos a la carpeta de versión
+            # Limpiar permanente y pasar archivos desde temporal
             for item in os.listdir(permanente_dir):
                 item_path = os.path.join(permanente_dir, item)
                 if os.path.isfile(item_path):
-                    shutil.copy2(item_path, version_dir)
+                    os.remove(item_path)
         
-        # Eliminar archivos actuales en la carpeta permanente
-        for item in os.listdir(permanente_dir):
-            item_path = os.path.join(permanente_dir, item)
-            if os.path.isfile(item_path):
-                os.remove(item_path)
+            for item in os.listdir(temporal_dir):
+                item_path = os.path.join(temporal_dir, item)
+                if os.path.isfile(item_path):
+                    shutil.copy2(item_path, permanente_dir)
         
-        # Copiar archivos temporales a permanentes
-        for item in os.listdir(temporal_dir):
-            item_path = os.path.join(temporal_dir, item)
-            if os.path.isfile(item_path):
-                shutil.copy2(item_path, permanente_dir)
-        
-        return True, "Commit realizado correctamente."
-    
-    def update(self):
-        # Actualiza la carpeta temporal con el contenido de la carpeta permanente,
-        # reemplazando cualquier archivo existente
+            return True, "Commit completo realizado correctamente."
+
+    def update(self, target_user=None):
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
-        
+
+        # actualizar access/usuario
+        if target_user:
+            if target_user not in self.users:
+                return False, f"El usuario '{target_user}' no existe."
+
+            if self.current_user not in self.users[target_user]["permissions"]:
+                return False, f"No tiene permisos para acceder a los archivos de {target_user}."
+
+            access_temporal_dir = os.path.join(self.root_path, self.current_user, "access", target_user)
+            os.makedirs(access_temporal_dir, exist_ok=True)
+
+            target_perm_dir = self.users[target_user]["permanente_dir"]
+
+            # Limpiar carpeta access
+            for item in os.listdir(access_temporal_dir):
+                item_path = os.path.join(access_temporal_dir, item)
+                if os.path.isfile(item_path):
+                    os.remove(item_path)
+
+            # Copiar archivos de permanente a access
+            for item in os.listdir(target_perm_dir):
+                item_path = os.path.join(target_perm_dir, item)
+                if os.path.isfile(item_path):
+                    shutil.copy2(item_path, access_temporal_dir)
+
+            return True, f"Archivos de {target_user} actualizados correctamente."
+
+        # actualizar la carpeta temporal propia
         temporal_dir = self.users[self.current_user]["temporal_dir"]
         permanente_dir = self.users[self.current_user]["permanente_dir"]
-        
-        # Eliminar archivos actuales en la carpeta temporal
+
         for item in os.listdir(temporal_dir):
             item_path = os.path.join(temporal_dir, item)
             if os.path.isfile(item_path):
                 os.remove(item_path)
-        
-        # Copiar archivos permanentes a temporales
+
         for item in os.listdir(permanente_dir):
             item_path = os.path.join(permanente_dir, item)
             if os.path.isfile(item_path):
                 shutil.copy2(item_path, temporal_dir)
-        
+
         return True, "Update realizado correctamente."
-    
+ 
     def list_versions(self):
         # Lista las versiones disponibles para el usuario actual
         if not self.current_user:
@@ -345,39 +453,117 @@ class FileManagementSystem:
         versions.sort(key=lambda x: x["timestamp"], reverse=True)
         return True, versions
     
-    def recover_version(self, version_id, recover_type="carpeta"):
+    def recover_version(self, recover_type="carpeta"):
         # Recupera una versión anterior de los archivos
         # recover_type: 'carpeta' para recuperar toda la carpeta, 'archivo' para un archivo específico
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
-        
+
+        # Obtener todas las versiones disponibles
+        success, versions = self.list_versions()
+        if not success:
+            return False, versions
+
+        if not versions:
+            return False, "No hay versiones disponibles."
+
+        # Mostrar las versiones disponibles
+        print("Versiones disponibles:")
+        for i, version in enumerate(versions):
+            timestamp = datetime.datetime.fromisoformat(version["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"{i + 1}. ID: {version['version_id']} - Fecha: {timestamp}")
+
+        # Solicitar al usuario el número de versión
+        try:
+            version_index = int(input("Ingrese el número de la versión que desea recuperar: ")) - 1
+            if version_index < 0 or version_index >= len(versions):
+                return False, "Número de versión inválido."
+        except ValueError:
+            return False, "El índice debe ser un número válido."
+
+        # Obtener el ID de la versión seleccionada
+        version_id = versions[version_index]["version_id"]
         version_dir = os.path.join(self.versions_dir, self.current_user, version_id)
+
         if not os.path.exists(version_dir):
             return False, f"La versión {version_id} no existe."
-        
-        temporal_dir = self.users[self.current_user]["temporal_dir"]
-        
+
+        permanente_dir = self.users[self.current_user]["permanente_dir"]
+
         if recover_type == "carpeta":
-            # Eliminar archivos actuales en la carpeta temporal
-            for item in os.listdir(temporal_dir):
-                item_path = os.path.join(temporal_dir, item)
+            # Recuperar toda la carpeta
+            # Eliminar archivos actuales en la carpeta permanente
+            for item in os.listdir(permanente_dir):
+                item_path = os.path.join(permanente_dir, item)
                 if os.path.isfile(item_path) and item != "metadata.json":
                     os.remove(item_path)
-            
-            # Copiar todos los archivos de la versión a la carpeta temporal
+
+            # Copiar todos los archivos de la versión a la carpeta permanente
             for item in os.listdir(version_dir):
                 item_path = os.path.join(version_dir, item)
                 if os.path.isfile(item_path) and item != "metadata.json":
-                    shutil.copy2(item_path, temporal_dir)
-            
-            return True, f"Carpeta recuperada de la versión {version_id}."
+                    shutil.copy2(item_path, permanente_dir)
+
+            return True, f"Carpeta permanente recuperada de la versión {version_id}."
+
         elif recover_type == "archivo":
-            # Implementación para recuperar un archivo específico
-            # (Agregar parámetro de nombre de archivo)
-            return False, "Recuperación de archivo individual no implementada."
+            # Recuperar un archivo específico
+            # Listar los archivos disponibles en la versión seleccionada
+            print("Archivos disponibles en la versión seleccionada:")
+            files = [file for file in os.listdir(version_dir) if file != "metadata.json"]
+            for file in files:
+                print(f"  - {file}")
+
+            # Solicitar al usuario el nombre del archivo
+            filename = input("Ingrese el nombre del archivo que desea recuperar: ").strip()
+            if filename not in files:
+                return False, f"El archivo '{filename}' no existe en la versión seleccionada."
+
+            # Recuperar el archivo específico
+            src_path = os.path.join(version_dir, filename)
+            dst_path = os.path.join(permanente_dir, filename)
+            shutil.copy2(src_path, dst_path)
+
+            return True, f"Archivo '{filename}' recuperado de la versión {version_id}."
+
         else:
             return False, "Tipo de recuperación no válido."
-    
+
+    def listar_archivos_version(self, version_index):
+        # Lista los archivos de una versión específica por índice
+        if not self.current_user:
+            return False, "Debe iniciar sesión primero."
+        
+        # Obtener todas las versiones disponibles
+        success, versions = self.list_versions()
+        if not success:
+            return False, versions
+        
+        if not versions:
+            return False, "No hay versiones disponibles."
+        
+        # Verificar si el índice es válido
+        try:
+            version_index = int(version_index) - 1  # Convertir a índice (1 basado en 0)
+            if version_index < 0 or version_index >= len(versions):
+                return False, "Número de versión inválido."
+        except ValueError:
+            return False, "El índice debe ser un número válido."
+        
+        # Obtener el ID de la versión
+        version_id = versions[version_index]["version_id"]
+        version_dir = os.path.join(self.versions_dir, self.current_user, version_id)
+        
+        if not os.path.exists(version_dir):
+            return False, f"La versión {version_id} no existe."
+        
+        # Listar los archivos en la carpeta de la versión
+        try:
+            files = [file for file in os.listdir(version_dir) if file != "metadata.json"]
+            return True, files
+        except Exception as e:
+            return False, f"Error al listar archivos de la versión: {str(e)}"
+
     def access_user_files(self, target_user, dir_type="permanente"):
         # Accede a los archivos de otro usuario si se tienen permisos
         if not self.current_user:
@@ -405,89 +591,6 @@ class FileManagementSystem:
             return False, f"Error al listar archivos: {str(e)}"
         
         return True, files
-    
-    def read_other_user_file(self, target_user, filename):
-        # Lee un archivo de otro usuario si se tienen permisos
-        if not self.current_user:
-            return False, "Debe iniciar sesión primero."
-        
-        if target_user not in self.users:
-            return False, f"El usuario {target_user} no existe."
-        
-        if self.current_user not in self.users[target_user]["permissions"]:
-            return False, f"No tiene permisos para acceder a los archivos de {target_user}."
-        
-        file_path = os.path.join(self.users[target_user]["permanente_dir"], filename)
-        
-        if not os.path.exists(file_path):
-            return False, f"El archivo '{filename}' no existe."
-        
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except Exception as e:
-            return False, f"Error al leer archivo: {str(e)}"
-        
-        return True, content
-    
-    def modify_other_user_file(self, target_user, filename, content):
-        # Modifica un archivo de otro usuario si se tienen permisos de escritura
-        if not self.current_user:
-            return False, "Debe iniciar sesión primero."
-        
-        if target_user not in self.users:
-            return False, f"El usuario {target_user} no existe."
-        
-        if self.current_user not in self.users[target_user]["permissions"]:
-            return False, f"No tiene permisos para acceder a los archivos de {target_user}."
-        
-        permission = self.users[target_user]["permissions"][self.current_user]
-        if permission != "escritura":
-            return False, f"No tiene permiso de de lectura para los archivos de {target_user}."
-        
-        file_path = os.path.join(self.users[target_user]["permanente_dir"], filename)
-        
-        if not os.path.exists(file_path):
-            return False, f"El archivo '{filename}' no existe."
-        
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-        except Exception as e:
-            return False, f"Error al modificar archivo: {str(e)}"
-        
-        return True, f"Archivo '{filename}' de {target_user} modificado correctamente."
-    
-    def update_other_user_files(self, target_user):
-        # Actualiza la carpeta de acceso temporal con los archivos
-        # de la carpeta permanente del usuario objetivo.
-        if not self.current_user:
-            return False, "Debe iniciar sesión primero."
-        
-        if target_user not in self.users:
-            return False, f"El usuario {target_user} no existe."
-        
-        if self.current_user not in self.users[target_user]["permissions"]:
-            return False, f"No tiene permisos para acceder a los archivos de {target_user}."
-        
-        access_temporal_dir = os.path.join(self.root_path, self.current_user, "access", target_user)
-        os.makedirs(access_temporal_dir, exist_ok=True)
-        
-        target_perm_dir = self.users[target_user]["permanente_dir"]
-        
-        # Eliminar archivos actuales en la carpeta de acceso temporal
-        for item in os.listdir(access_temporal_dir):
-            item_path = os.path.join(access_temporal_dir, item)
-            if os.path.isfile(item_path):
-                os.remove(item_path)
-        
-        # Copiar archivos permanentes del usuario objetivo a la carpeta de acceso temporal
-        for item in os.listdir(target_perm_dir):
-            item_path = os.path.join(target_perm_dir, item)
-            if os.path.isfile(item_path):
-                shutil.copy2(item_path, access_temporal_dir)
-        
-        return True, f"Archivos de {target_user} actualizados correctamente."
 
     @staticmethod
     def input_con_asteriscos(prompt=''):
@@ -508,7 +611,7 @@ class FileManagementSystem:
             else:
                 password += char.decode('utf-8')
                 print('*', end='', flush=True)
-        return password
+        return password   
 
 class CommandLineInterface(Cmd):
     prompt = 'ControlArchivos> '
@@ -547,7 +650,6 @@ class CommandLineInterface(Cmd):
         if success:
             self.prompt = f'FileSystem ({username})> '
 
-    
     def do_cerrar_sesion(self, arg):
         # Cierra sesion
         # uso: cerrar_sesion
@@ -581,9 +683,9 @@ class CommandLineInterface(Cmd):
         success, message = self.system.revoke_permission(target_user)
         print(message)
     
-    def do_listar_archivos(self, arg):
+    def do_mis_archivos(self, arg):
         # Lista los archivos en una carpeta
-        # uso: listar_archivos [tipo_directorio]
+        # uso: mis_archivos [tipo_directorio]
         # tipo_directorio: "temporal" (temporal, por defecto) o "permanente"
         dir_type = arg.strip() or "temporal"
         success, result = self.system.list_files(dir_type)
@@ -598,9 +700,9 @@ class CommandLineInterface(Cmd):
         else:
             print(result)
     
-    def do_listar_accesibles(self, arg):
+    def do_carpetas_accesibles(self, arg):
         # Lista las carpetas a las que el usuario tiene acceso
-        # uso: listar_accesibles
+        # uso: carpetas_accesibles
         success, result = self.system.list_accessible_folders()
         
         if success:
@@ -615,112 +717,99 @@ class CommandLineInterface(Cmd):
     
     def do_crear_archivo(self, arg):
         # Crea un nuevo archivo
-        # uso: crear_archivo <nombre_archivo>
-        # tipo_directorio: "temporal" (temporal, por defecto)
+        # Uso:
+        # - crear_archivo <nombre_archivo.formato> (crea en carpeta temporal propia)
+        # - crear_archivo <nombre_archivo.formato> <dueño> (crea en carpeta access/dueño)
         args = arg.strip().split()
         if not args:
-            print("Debe proporcionar un nombre de archivo, crear_archivo <nombre_archivo>")
+            print("Uso:\n- crear_archivo <nombre_archivo.formato> (crea en carpeta temporal)\n- crear_archivo <nombre_archivo.formato> <dueño> (crea en carpeta access/dueño)")
             return
-        
+
         filename = args[0]
-        dir_type = args[1] if len(args) > 1 else "temporal"
-        
-        print(f"Ingrese el contenido del archivo (termine con una línea que contenga solo '//'):")
-        content_lines = []
-        while True:
-            line = input()
-            if line == "//":
-                break
-            content_lines.append(line)
-        
-        content = "\n".join(content_lines)
-        success, message = self.system.create_file(filename, content, dir_type)
+        owner = args[1] if len(args) > 1 else None
+
+        content = " "
+        success, message = self.system.create_file(filename, content, owner)
         print(message)
-    
-    def do_leer_archivo(self, arg):
-        # Lee el contenido de un archivo
-        # uso: leer_archivo <nombre_archivo> [tipo_directorio]
-        # tipo_directorio: "temporal" (temporal, por defecto) o "permanente"
-        args = arg.strip().split()
-        if not args:
-            print("Debe proporcionar un nombre de archivo, leer_archivo <nombre_archivo> [tipo_directorio] ")
-            return
-        
-        filename = args[0]
-        dir_type = args[1] if len(args) > 1 else "temporal"
-        
-        success, result = self.system.read_file(filename, dir_type)
-        
-        if success:
-            print(f"Contenido del archivo '{filename}':")
-            print("=" * 50)
-            print(result)
-            print("=" * 50)
-        else:
-            print(result)
-    
+
     def do_modificar_archivo(self, arg):
-        # Modifica un archivo existente
-        # uso: modificar_archivo <nombre_archivo> [tipo_directorio]
-        # tipo_directorio: "temporal" (temporal, por defecto)
+        # Modifica la fecha de un archivo existente
+        # uso: modificar_archivo <nombre_archivo> [dueño]
+        # Si no se especifica dueño, se modifica en la carpeta temporal del usuario actual.
         args = arg.strip().split()
         if not args:
-            print("Debe proporcionar un nombre de archivo, modificar_archivo <nombre_archivo>")
+            print("Debe proporcionar un nombre de archivo,modificar_archivo <nombre_archivo> o modificar_archivo <nombre_archivo> [dueño]")
             return
         
         filename = args[0]
-        dir_type = args[1] if len(args) > 1 else "temporal"
+        owner = args[1] if len(args) > 1 else None
+        dir_type = "access" if owner else "temporal"
         
-        # Leer contenido actual para mostrarlo
-        success, current_content = self.system.read_file(filename, dir_type)
-        if not success:
-            print(current_content)
-            return
-        
-        print(f"Contenido actual del archivo '{filename}':")
-        print("=" * 50)
-        print(current_content)
-        print("=" * 50)
-        
-        print(f"Ingrese el nuevo contenido (termine con una línea que contenga solo '//'):")
-        content_lines = []
-        while True:
-            line = input()
-            if line == "//":
-                break
-            content_lines.append(line)
-        
-        content = "\n".join(content_lines)
-        success, message = self.system.update_file(filename, content, dir_type)
+        success, message = self.system.modify_file(filename, dir_type, owner)
         print(message)
     
     def do_eliminar_archivo(self, arg):
         # Elimina un archivo
-        # uso: eliminar_archivo <nombre_archivo> [tipo_directorio]
-        # tipo_directorio: "temporal" (temporal, por defecto) o "permanente" (permanente)
+        # uso: eliminar_archivo <nombre_archivo> [dueño]
         args = arg.strip().split()
         if not args:
-            print("Debe proporcionar un nombre de archivo, eliminar_archivo <nombre_archivo>")
+            print("Debe proporcionar un nombre de archivo, eliminar_archivo <nombre_archivo> [dueño]")
             return
         
         filename = args[0]
-        dir_type = args[1] if len(args) > 1 else "temporal"
+        owner = args[1] if len(args) > 1 else None
+        dir_type = "access" if owner else "temporal"
         
-        success, message = self.system.delete_file(filename, dir_type)
+        success, message = self.system.delete_file(filename, dir_type, owner)
         print(message)
     
     def do_commit(self, arg):
-        # Transfiere los archivos de la carpeta temporal a la permanente
-        # uso: commit
-        success, message = self.system.commit()
+        # Realiza un commit.
+        # Uso: 
+        # - commit                    # Transfiere todo de temporal a permanente
+        # - commit <dueño>            # Transfiere toda la carpeta de acceso a la permanente del dueño
+        args = arg.strip().split()
+        
+        if len(args) == 0:
+            # Commit completo: temporal -> permanente
+            success, message = self.system.commit()
+        elif len(args) == 1:
+            # Commit de toda la carpeta de acceso de un dueño
+            owner = args[0]
+            success, message = self.system.commit(owner=owner)
+        else:
+            print("Uso incorrecto. Use:\n - commit\n - commit <dueño>")
+            return
+        
         print(message)
     
     def do_update(self, arg):
-        # Realiza un update: actualiza la carpeta temporal con el contenido de la permanente
-        # Uso: update
-        success, message = self.system.update()
+        # Actualiza archivos:
+        # - update                    -> actualiza carpeta temporal del usuario actual
+        # - update <nombre_usuario>   -> actualiza access/<nombre_usuario>
+        target_user = arg.strip() or None
+        success, message = self.system.update(target_user)
         print(message)
     
+    def do_listar_archivos_version(self, arg):
+        # Lista los archivos de una versión específica
+        # uso: listar_archivos_version <número_de_versión>
+        version_index = arg.strip()
+        if not version_index:
+            print("Debe proporcionar el número de versión, listar_archivos_version <número_de_versión>")
+            return
+        
+        success, result = self.system.listar_archivos_version(version_index)
+        if success:
+            if not result:
+                print(f"No hay archivos en la versión {version_index}.")
+            else:
+                print(f"Archivos en la versión {version_index}:")
+                for file in result:
+                    print(f"  - {file}")
+        else:
+            print(result)
+
     def do_listar_versiones(self, arg):
         # Lista las versiones disponibles.
         # uso: listar_versiones
@@ -739,21 +828,21 @@ class CommandLineInterface(Cmd):
     
     def do_recuperar_version(self, arg):
         # Recupera una versión anterior
-        # uso: recuperar_version <id_version>
-        version_id = arg.strip()
-        if not version_id:
-            print("Debe proporcionar un ID de versión.")
+        # uso: recuperar_version carpeta | archivo
+        recover_type = arg.strip().lower()
+        if recover_type not in ["carpeta", "archivo"]:
+            print("Uso incorrecto. Use:\n - recuperar_version carpeta\n - recuperar_version archivo")
             return
-        
-        success, message = self.system.recover_version(version_id, "carpeta")
+
+        success, message = self.system.recover_version(recover_type)
         print(message)
     
-    def do_acceder_archivos(self, arg):
+    def do_archivos_accesibles(self, arg):
         # Accede a los archivos de otro usuario
-        # uso: acceder_archivos <nombre_usuario>
+        # uso: archivos_accesibles <nombre_usuario>
         target_user = arg.strip()
         if not target_user:
-            print("Debe proporcionar un nombre de usuario, acceder_archivos <nombre_usuario>")
+            print("Debe proporcionar un nombre de usuario, archivos_accesibles <nombre_usuario>")
             return
         
         success, result = self.system.access_user_files(target_user)
@@ -767,70 +856,12 @@ class CommandLineInterface(Cmd):
                     print(f"  - {file}")
         else:
             print(result)
-    
-    def do_leer_archivo_usuario(self, arg):
-        # Lee un archivo de otro usuario
-        # uso: leer_archivo_usuario <nombre_usuario> <nombre_archivo>
-        args = arg.strip().split()
-        if len(args) != 2:
-            print("Uso: leer_archivo_usuario <nombre_usuario> <nombre_archivo>")
-            return
-        
-        target_user, filename = args
-        success, result = self.system.read_other_user_file(target_user, filename)
-        
-        if success:
-            print(f"Contenido del archivo '{filename}' de {target_user}:")
-            print("=" * 50)
-            print(result)
-            print("=" * 50)
-        else:
-            print(result)
-    
-    def do_modificar_archivo_usuario(self, arg):
-        # Modifica un archivo de otro usuario (requiere permiso de escritura)
-        # uso: modificar_archivo_usuario <nombre_usuario> <nombre_archivo>
-        args = arg.strip().split()
-        if len(args) != 2:
-            print("Uso: modificar_archivo_usuario <nombre_usuario> <nombre_archivo>")
-            return
-        
-        target_user, filename = args
-        
-        # Leer contenido actual
-        success, current_content = self.system.read_other_user_file(target_user, filename)
-        if not success:
-            print(current_content)
-            return
-        
-        print(f"Contenido actual del archivo '{filename}' de {target_user}:")
-        print("=" * 50)
-        print(current_content)
-        print("=" * 50)
-        
-        print(f"Ingrese el nuevo contenido (termine con una línea que contenga solo '//'):")
-        content_lines = []
-        while True:
-            line = input()
-            if line == "//":
-                break
-            content_lines.append(line)
-        
-        content = "\n".join(content_lines)
-        success, message = self.system.modify_other_user_file(target_user, filename, content)
-        print(message)
-    
-    def do_actualizar_archivos_usuario(self, arg):
-        # Actualiza la carpeta de acceso con los archivos de otro usuario
-        # uso: actualizar_archivos_usuario <nombre_usuario>
-        target_user = arg.strip()
-        if not target_user:
-            print("Debe proporcionar un nombre de usuario, actualizar_archivos_usuario <nombre_usuario>")
-            return
-        
-        success, message = self.system.update_other_user_files(target_user)
-        print(message)
-    
+
+    def do_cls(self, arg):
+        # Limpia la consola.
+        # uso: cls
+        os.system('cls' if os.name == 'nt' else 'clear')
+
     def do_ayuda(self, arg):
         # Muestra la ayuda para los comandos
         if arg:
@@ -840,68 +871,48 @@ class CommandLineInterface(Cmd):
             print("\nComandos disponibles:")
             
             print("\nGestión de usuarios:")
-            print("  registrar           - Registra un nuevo usuario")
-            print("  iniciar             - Inicia sesión")
-            print("  cerrar_sesion        - Cierra la sesión actual")
-            print("  otorgar_permiso     - Otorga permisos a otro usuario")
-            print("  revocar_permiso     - Revoca permisos a otro usuario")
+            print("  registrar           - Registra un nuevo usuario ()(registrar <nombre_usuario>)")
+            print("  iniciar             - Inicia sesión (iniciar <nombre_usuario>)")
+            print("  cerrar_sesion        - Cierra la sesión actual (cerrar_sesion)")
+            print("  otorgar_permiso     - Otorga permisos a otro usuario (otorgar_permiso <nombre_usuario> <tipo_permiso>)")
+            print("  revocar_permiso     - Revoca permisos a otro usuario (revocar_permiso <nombre_usuario>)")
             
-            print("\nGestión de archivos propios:")
-            print("  listar_archivos     - Lista archivos en carpeta temporal o permanente")
-            print("  crear_archivo       - Crea un nuevo archivo")
-            print("  leer_archivo        - Lee el contenido de un archivo")
-            print("  modificar_archivo   - Modifica un archivo existente")
-            print("  eliminar_archivo    - Elimina un archivo")
+            print("\nGestión de archivos:")
+            print("  crear_archivo       - Crea un nuevo archivo (crear_archivo <nombre_archivo> [dueño] o crear_archivo <nombre_archivo>)")
+            print("  modificar_archivo   - Modifica un archivo (modificar_archivo <nombre_archivo> [dueño] o modificar_archivo <nombre_archivo>)")
+            print("  eliminar_archivo    - Elimina un archivo (eliminar_archivo <nombre_archivo> [dueño] o eliminar_archivo <nombre_archivo>)")
             
             print("\nControl de versiones:")
-            print("  commit              - Transfiere de temporal a permanente y crea versión")
-            print("  update              - Actualiza temporal con contenido de permanente")
+            print("  commit              - Transfiere de temporal a permanente y crea versión (commit o commit <dueño>)")
+            print("  update              - Actualiza temporal con contenido de permanente (update o update <dueño>)")
             print("  listar_versiones    - Lista versiones disponibles")
-            print("  recuperar_version   - Recupera una versión anterior")
+            print("  listar_archivos_version    - Lista los archivos de una version")
+            print("  recuperar_version   - Recupera una versión anterior de archivo o carpeta (recuperar_version <carpeta|archivo>)")
             
-            print("\nInteracción con otros usuarios:")
-            print("  listar_accesibles   - Lista carpetas a las que tiene acceso")
-            print("  acceder_archivos    - Accede a archivos de otro usuario")
-            print("  leer_archivo_usuario - Lee archivo de otro usuario")
-            print("  modificar_archivo_usuario - Modifica archivo de otro usuario")
-            print("  actualizar_archivos_usuario - Actualiza archivos de acceso")
+            print("\nListado de archivos y carpetas:")
+            print("  mis_archivos     - Lista archivos en carpeta temporal o permanente (mis_archivos [tipo])")
+            print("  carpetas_accesibles   - Lista carpetas a las que tiene acceso (carpetas_accesibles <nombre_usuario>)")
+            print("  archivos_accesibles    - Accede a archivos de otro usuario (archivos_accesibles <nombre_usuario>)")
             
             print("\nOtros comandos:")
             print("  ayuda               - Muestra esta ayuda")
             print("  salir               - Sale del programa")
-            
-            print("\nPara ver ayuda detallada de un comando, escriba: ayuda <comando>")
-    
-    def help_ayuda(self):
-        """Ayuda para el comando ayuda."""
-        print("Muestra la ayuda para los comandos.")
-        print("Uso: ayuda [comando]")
-        print("Si se especifica un comando, muestra la ayuda detallada para ese comando.")
-        print("Si no se especifica un comando, muestra la lista de todos los comandos disponibles.")
+            print("  cls                 - Limpia la consola")   
     
     def do_salir(self, arg):
-        """
-        Sale del programa.
-        Uso: salir
-        """
+        # Sale del programa.
+        # uso: salir
         print("¡Hasta luego!")
         return True
-    
-    # Alias comunes
-    do_exit = do_salir
-    do_quit = do_salir
-    do_help = do_ayuda
-    do_logout = do_cerrar_sesion
-    do_login = do_iniciar
 
 def main():
     # Función principal
     print("Sistema de Control de Archivos")
     print("=" * 50)
     
-    # Ubicación del repositorio raíz
+    # Ubicación del raiz raíz
     while True:
-        root_path = os.path.join(os.getcwd(), "repositorio")      
+        root_path = os.path.join(os.getcwd(), "raiz")      
         if not os.path.exists(root_path):
             try:
                 os.makedirs(root_path)
