@@ -190,7 +190,6 @@ class FileManagementSystem:
             # Ruta para la carpeta access/owner del usuario actual
             access_owner_dir = os.path.join(self.root_path, self.current_user, "access", owner)
 
-            # Verificar si la carpeta existe, si no, crearla
             if not os.path.exists(access_owner_dir):
                 try:
                     os.makedirs(access_owner_dir)
@@ -199,7 +198,7 @@ class FileManagementSystem:
             
             file_path = os.path.join(access_owner_dir, filename)
 
-        # Crear el archivo (vacío o con contenido)
+        # Crear el archivo
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -343,7 +342,7 @@ class FileManagementSystem:
 
             return True, f"Commit realizado para la carpeta permanente de '{owner}'."
 
-        # Modo: commit (sin argumentos) => pasar temporal propio a permanente
+        # Modo: commit (sin argumentos) pasar temporal propio a permanente
         else:
             temporal_dir = self.users[self.current_user]["temporal_dir"]
             permanente_dir = self.users[self.current_user]["permanente_dir"]
@@ -383,6 +382,7 @@ class FileManagementSystem:
             return True, "Commit completo realizado correctamente."
 
     def update(self, target_user=None):
+        #update o update <nombre_usuario>
         if not self.current_user:
             return False, "Debe iniciar sesión primero."
 
@@ -648,7 +648,7 @@ class CommandLineInterface(Cmd):
         print(message)
 
         if success:
-            self.prompt = f'FileSystem ({username})> '
+            self.prompt = f'ControlArchivos ({username})> '
 
     def do_cerrar_sesion(self, arg):
         # Cierra sesion
@@ -657,7 +657,7 @@ class CommandLineInterface(Cmd):
         print(message)
         
         if success:
-            self.prompt = 'FileSystem> '
+            self.prompt = 'ControlArchivos> '
     
     def do_otorgar_permiso(self, arg):
         # Otorga permisos a otro usuario.
@@ -886,7 +886,7 @@ class CommandLineInterface(Cmd):
             print("  commit              - Transfiere de temporal a permanente y crea versión (commit o commit <dueño>)")
             print("  update              - Actualiza temporal con contenido de permanente (update o update <dueño>)")
             print("  listar_versiones    - Lista versiones disponibles")
-            print("  listar_archivos_version    - Lista los archivos de una version")
+            print("  listar_archivos_version    - Lista los archivos de una version especifica (listar_archivos_version <número_de_versión>)")
             print("  recuperar_version   - Recupera una versión anterior de archivo o carpeta (recuperar_version <carpeta|archivo>)")
             
             print("\nListado de archivos y carpetas:")
